@@ -87,7 +87,7 @@ function App() {
   
 
 const searchParams = new URLSearchParams(window.location.search);
-const initialSheet = searchParams.get("sheet") || "Limited Fashion";
+const initialSheet = searchParams.get("sheet") || "Terra"; // 替换为初始的 sheet 名字
 const [sheetName, setSheetName] = useState(initialSheet);
 
 const sheetOptions = ["Terra"]; // 替换为你实际的 sheet 名字列表
