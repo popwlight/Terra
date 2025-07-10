@@ -13,6 +13,9 @@ import axios from "axios";
 import { useSearchParams } from 'react-router-dom'; 
 
 const globalStyleMap: Record<string, any> = {};
+const globalData: any[] = [];
+const GST_RATE = 0.1;
+
 
 
 
@@ -119,7 +122,19 @@ const sheetOptions = ["Terra"]; // 替换为你实际的 sheet 名字列表
   const [styleMap, setStyleMap] = useState<Record<string, any>>({});
 
 function findItemBySKU(sku: string) {
-  // 按 SKU 精确找，必须和 generateSKU 逻辑一致
+  // 先在 globalData 查找
+  let found = globalData.find(row => {
+    const widths = expandWidths(row.Width);
+    const colours = expandColours(row.Colours);
+    const sizes = expandSizes(row.Size, row.Style);
+    return colours.some(colour =>
+      widths.some(width =>
+        sizes.some(size => generateSKU(row, width, colour, size) === sku)
+      )
+    );
+  });
+  if (found) return found;
+  // 兜底查当前 data
   return data.find(row => {
     const widths = expandWidths(row.Width);
     const colours = expandColours(row.Colours);
@@ -131,34 +146,27 @@ function findItemBySKU(sku: string) {
     );
   });
 }
+
   
 useEffect(() => {
   axios.get(`https://opensheet.elk.sh/1yRWT1Ta1S21tN1dmuKzWNbhdlLwj2Sdtobgy1Rj8IM0/${sheetName}`)
     .then(res => {
-      setData(res.data);
-
-let currentCollectionGroup: string | null = null;
-const rows: any[] = [];
-
-res.data.forEach(i => {
-  if (i.Collection && !i.Style && !i.Desc) {
-    currentCollectionGroup = i.Collection;
-  }
-  // 如果是正常产品行
-  if (i.Style) {
-    rows.push({
-      ...i,
-      Group: currentCollectionGroup,
-    });
-    // 仅用于SKU查找等辅助（非必须）
-    // globalStyleMap[`${i.Style}|${i.Colours}|${i.Size}|${i.Width}`] = {
-    //   ...i,
-    //   Group: currentCollectionGroup,
-    // };
-  }
-});
-
-setData(rows);
+      let currentCollectionGroup: string | null = null;
+      const rows: any[] = [];
+      res.data.forEach(i => {
+        if (i.Collection && !i.Style && !i.Desc) {
+          currentCollectionGroup = i.Collection;
+        }
+        if (i.Style) {
+          const item = { ...i, Group: currentCollectionGroup };
+          rows.push(item);
+          // 把该 item 加入 globalData，如果还没有
+          if (!globalData.some(g => g.Style === item.Style && g.Colours === item.Colours && g.Size === item.Size && g.Width === item.Width)) {
+            globalData.push(item);
+          }
+        }
+      });
+      setData(rows);
 
 
       const expanded: Record<string, boolean> = {};
@@ -225,21 +233,18 @@ const csvContent = generateGroupedCSV(quantities);
 
   let htmlTable = "";
 const grouped: Record<string, { rows: string[], subtotal: number, qty: number }> = {};
-
-
 Object.entries(quantities).forEach(([sku, qty]) => {
   if (qty > 0) {
-    const styleCode = sku.substring(0, 9);
     const item = findItemBySKU(sku);
     const group = item?.Group || "Uncategorized";
     const price = parseFloat(item?.Wholesale) || 0;
-
     if (!grouped[group]) grouped[group] = { rows: [], subtotal: 0 };
     grouped[group].rows.push(`<tr><td>${sku}</td><td>${qty}</td></tr>`);
     grouped[group].subtotal += price * qty;
     grouped[group].qty = (grouped[group].qty || 0) + qty;
   }
 });
+
 
 Object.entries(grouped).forEach(([group, { rows, subtotal }]) => {
   htmlTable += `<h4>${group}</h4>`;
@@ -259,13 +264,15 @@ Object.entries(grouped).forEach(([group, { rows, subtotal }]) => {
     .toString()
     .padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
 
-  const summaryHtml = `
-    <p><b>Customer ID:</b> ${customerId || "N/A"}</p>
-    <p><b>Customer Name:</b> ${customerName || "N/A"}</p>
-    <p><b>Order Time:</b> ${orderTime}</p>
-    <p><b>Total Quantity:</b> ${totalQty}</p>
-    <p><b>Total Amount:</b> $${totalAmount.toFixed(2)}</p>
-  `;
+const summaryHtml = `
+  <p><b>Customer ID:</b> ${customerId || "N/A"}</p>
+  <p><b>Customer Name:</b> ${customerName || "N/A"}</p>
+  <p><b>Order Time:</b> ${orderTime}</p>
+  <p><b>Total Quantity:</b> ${totalQty}</p>
+  <p><b>Total Amount (ex. GST):</b> $${totalAmount.toFixed(2)}</p>
+  <p><b>GST (10%):</b> $${gstAmount.toFixed(2)}</p>
+  <p><b>Total Amount (incl. GST):</b> $${totalWithGST.toFixed(2)}</p>
+`;
 
   const htmlContent = `
   <div style="display: flex; align-items: center; margin-bottom: 20px;">
@@ -288,7 +295,7 @@ Object.entries(grouped).forEach(([group, { rows, subtotal }]) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
   to: email,
-  subject: `Capezio Terra - V720C Order from ${
+  subject: `Capezio Summer 2026 Order from ${
     customerName && customerId
       ? `${customerName} (${customerId})`
       : customerName || customerId || "Unnamed Customer"
@@ -308,17 +315,18 @@ Object.entries(grouped).forEach(([group, { rows, subtotal }]) => {
 };
 
   
-  const grouped: Record<string, any[]> = {};
-  let currentGroup = "Ungrouped";
+const grouped: Record<string, any[]> = React.useMemo(() => {
+  const groups: Record<string, any[]> = {};
   data.forEach(row => {
-    if (row.Collection && !row.Style && !row.Desc) {
-      currentGroup = row.Collection;
-      if (!grouped[currentGroup]) grouped[currentGroup] = [];
-    } else if (row.Style && row.Wholesale) {
-      if (!grouped[currentGroup]) grouped[currentGroup] = [];
-      grouped[currentGroup].push(row);
-    }
+    if (!row.Style || !row.Wholesale) return; // 跳过无效行
+    const group = row.Group || "Ungrouped";
+    if (!groups[group]) groups[group] = [];
+    groups[group].push(row);
   });
+  return groups;
+}, [data]);
+
+
 
 const handleChange = (sku: string, val: string) => {
   if (val.trim() === "") {
@@ -377,22 +385,18 @@ const fixedSize = (size: string): string => {
 };
 
 function generateGroupedCSV(quantities: Record<string, number>) {
-  const grouped: Record<string, { rows: string[], subtotal: number, qty: number }> = {};
-
-  Object.entries(quantities).forEach(([sku, qty]) => {
-    if (qty > 0) {
-      //const styleCode = sku.substring(0, 9); // 保持原SKU格式
-      //const item = styleMap[styleCode];
-      const item = findItemBySKU(sku);
-      const group = item?.Group || "Uncategorized";
-      const price = parseFloat(item?.Wholesale) || 0;
-
-      if (!grouped[group]) grouped[group] = { rows: [], subtotal: 0 };
-      grouped[group].rows.push(`${sku},${qty}`);
-      grouped[group].subtotal += price * qty;
-      grouped[group].qty = (grouped[group].qty || 0) + qty;
-    }
-  });
+const grouped: Record<string, { rows: string[], subtotal: number, qty: number }> = {};
+Object.entries(quantities).forEach(([sku, qty]) => {
+  if (qty > 0) {
+    const item = findItemBySKU(sku);
+    const group = item?.Group || "Uncategorized";
+    const price = parseFloat(item?.Wholesale) || 0;
+    if (!grouped[group]) grouped[group] = { rows: [], subtotal: 0 };
+    grouped[group].rows.push(`${sku},${qty}`);
+    grouped[group].subtotal += price * qty;
+    grouped[group].qty = (grouped[group].qty || 0) + qty;
+  }
+});
 
   const lines = ["SKU,Qty"];
   Object.entries(grouped).forEach(([group, { rows, subtotal }]) => {
@@ -424,8 +428,10 @@ function generateGroupedCSV(quantities: Record<string, number>) {
   const totalQty = Object.values(quantities).reduce((sum, v) => sum + v, 0);
   const totalAmount = Object.entries(quantities).reduce((sum, [sku, qty]) => {
   const item = findItemBySKU(sku);
-    return sum + ((parseFloat(item?.Wholesale) || 0) * qty);
-  }, 0);
+  return sum + ((parseFloat(item?.Wholesale) || 0) * qty);
+}, 0);
+  const gstAmount = totalAmount * GST_RATE;
+  const totalWithGST = totalAmount + gstAmount;
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -480,7 +486,7 @@ if (item?.Group) {
         alt="Logo"
         style={{ height: 30.645, marginRight: 10 }}
       />
-      <h1 style={{ fontSize: 20 }}>Capezio Terra - V720C Order Form</h1>
+      <h1 style={{ fontSize: 20 }}>Capezio Terra Wholesale 30 Order Form</h1>
     </div>
       <div style={{ marginBottom: 10 }}>
   <label><b>Choose Secion:</b> </label>
@@ -599,7 +605,7 @@ if (item?.Group) {
 
 {/* 👇 单独写产品汇总信息 */}
 <p style={{ marginTop: 10 }}>
-  Total Items: <b>{totalQty}</b> — Total Amount: <b>${totalAmount.toFixed(2)}</b>
+  Total Items: <b>{totalQty}</b> — Total Amount: <b>${totalAmount.toFixed(2)}</b> — GST: <b>${gstAmount.toFixed(2)}</b> — Total incl. GST: <b>${totalWithGST.toFixed(2)}</b>
 </p>
 
 
