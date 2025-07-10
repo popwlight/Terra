@@ -295,7 +295,7 @@ const summaryHtml = `
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
   to: email,
-  subject: `Capezio Summer 2026 Order from ${
+  subject: `Capezio Terra Wholesale30 Order from ${
     customerName && customerId
       ? `${customerName} (${customerId})`
       : customerName || customerId || "Unnamed Customer"
@@ -486,7 +486,7 @@ if (item?.Group) {
         alt="Logo"
         style={{ height: 30.645, marginRight: 10 }}
       />
-      <h1 style={{ fontSize: 20 }}>Capezio Terra Wholesale 30 Order Form</h1>
+      <h1 style={{ fontSize: 20 }}>Capezio Terra Wholesale30 Order Form</h1>
     </div>
       <div style={{ marginBottom: 10 }}>
   <label><b>Choose Secion:</b> </label>
